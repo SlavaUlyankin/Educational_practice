@@ -59,7 +59,8 @@ print(f"   повторный перенос брони 3 на 19:30 -> {code.va
 show(bookings)
 
 print("\n3. Сеанс брони 1: выдача оборудования (А3), старт (А2)")
-session = Session(1, players_count=4, duration_min=60)
+session = Session(1, players_count=4, duration_min=60,
+                  arena_id=bookings[0].arena_id, booking_id=bookings[0].booking_id)
 bookings[0].session_id = session.session_id
 code, ids, _ = issue_equipment(session, kits, rows, t(17, 55), log)
 print(f"   выдача: {code.value}, комплекты {ids}")

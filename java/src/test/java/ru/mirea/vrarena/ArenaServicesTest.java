@@ -63,31 +63,63 @@ class ArenaServicesTest {
         assertEquals(BookingStatus.NO_SHOW,one.status());assertEquals(BookingEventType.NO_SHOW,history.get(history.size()-1).eventType());
     }
     @Test void sessionBoundariesAndCompletion(){
-        Booking one=create();Session s=new Session(1,2,60);SessionService sessions=new SessionService(clock,bookings);sessions.start(s,one);
+        Booking one=create();Session s=new Session(1,one);SessionService sessions=new SessionService(clock,bookings);sessions.start(s,one);
         clock.now=clock.now.plusSeconds(55*60);assertEquals(SessionService.TimeState.ENDING_SOON,sessions.timeState(s,5).state());
         clock.now=clock.now.plusSeconds(5*60);assertEquals(SessionService.TimeState.TIME_UP,sessions.timeState(s,5).state());
         sessions.finish(s);assertEquals(BookingStatus.COMPLETED,one.status());assertEquals(SessionStatus.COMPLETED,s.status());
     }
     @Test void returnValidatesAllConditionsBeforeMutation(){
-        Booking one=create();Session s=new Session(1,2,60);EquipmentService equipment=new EquipmentService(clock,kits,issues,log);
-        equipment.issue(s,1);SessionService sessions=new SessionService(clock,bookings);sessions.start(s,one);clock.now=clock.now.plusSeconds(61*60);sessions.finish(s);
+        Booking one=create();Session s=new Session(1,one);EquipmentService equipment=new EquipmentService(clock,kits,issues,log);
+        equipment.issue(s);SessionService sessions=new SessionService(clock,bookings);sessions.start(s,one);clock.now=clock.now.plusSeconds(61*60);sessions.finish(s);
         int before=log.size();assertThrows(IllegalArgumentException.class,()->equipment.returnEquipment(s,Map.of(1L,"ok")));
         assertNull(issues.get(0).returnedAt());assertEquals(before,log.size());assertEquals(EquipmentStatus.ISSUED,kits.get(0).status());
         assertEquals(List.of(1L,2L),equipment.returnEquipment(s,Map.of(1L,"ok",2L,"damaged")));
         assertEquals(EquipmentStatus.RETURNED_PENDING,kits.get(0).status());assertEquals(EquipmentStatus.FAULTY,kits.get(1).status());
     }
     @Test void replacementLogsFaultAndIssue(){
-        Booking one=create();Session s=new Session(1,2,60);EquipmentService equipment=new EquipmentService(clock,kits,issues,log);
-        equipment.issue(s,1);new SessionService(clock,bookings).start(s,one);
-        assertEquals(3,equipment.replace(s,1));assertEquals(EquipmentStatus.FAULTY,kits.get(0).status());
+        Booking one=create();Session s=new Session(1,one);EquipmentService equipment=new EquipmentService(clock,kits,issues,log);
+        equipment.issue(s);new SessionService(clock,bookings).start(s,one);
+        assertEquals(3L,equipment.replace(s,1).replacementId());assertEquals(EquipmentStatus.FAULTY,kits.get(0).status());
         assertEquals(EquipmentStatus.ISSUED,kits.get(2).status());assertNotNull(issues.get(0).returnedAt());
         assertThrows(IllegalStateException.class,()->equipment.changeStatus(kits.get(0),EquipmentStatus.AVAILABLE,"invalid"));
     }
     @Test void noReplacementStillRecordsFaultAndRemoval(){
-        Booking one=create();Session s=new Session(1,2,60);EquipmentService equipment=new EquipmentService(clock,kits,issues,log);
-        equipment.issue(s,1);equipment.changeStatus(kits.get(2),EquipmentStatus.FAULTY,"unavailable");
+        Booking one=create();Session s=new Session(1,one);EquipmentService equipment=new EquipmentService(clock,kits,issues,log);
+        equipment.issue(s);equipment.changeStatus(kits.get(2),EquipmentStatus.FAULTY,"unavailable");
         new SessionService(clock,bookings).start(s,one);
-        assertThrows(IllegalStateException.class,()->equipment.replace(s,1));
+        var result=equipment.replace(s,1);assertTrue(result.faultRecorded());assertNull(result.replacementId());assertEquals("NO_REPLACEMENT",result.reason());
         assertEquals(EquipmentStatus.FAULTY,kits.get(0).status());assertNotNull(issues.get(0).returnedAt());
+    }
+    @Test void slotCheckRejectsEquipmentNotCurrentlyAvailable(){
+        for(EquipmentStatus status:List.of(EquipmentStatus.ISSUED,EquipmentStatus.RETURNED_PENDING,EquipmentStatus.SERVICING,EquipmentStatus.FAULTY)) {
+            kits.get(0).setStatus(status);kits.get(1).setStatus(status);
+            assertEquals(BookingService.SlotCode.NOT_ENOUGH_KITS,service.checkSlot(start,60,2,game,arena,null).code());
+        }
+    }
+    @Test void issueNeverTakesKitsFromAnotherArena(){
+        Booking one=create();Session s=new Session(1,one);
+        kits.removeIf(k->k.arenaId==1 && k.id>1);
+        kits.add(new EquipmentSet(4,2,"OTHER1",EquipmentKind.HEADSET));kits.add(new EquipmentSet(5,2,"OTHER2",EquipmentKind.HEADSET));
+        EquipmentService equipment=new EquipmentService(clock,kits,issues,log);
+        assertThrows(IllegalStateException.class,()->equipment.issue(s));assertTrue(issues.isEmpty());
+    }
+    @Test void sameSlotLeavesHistoryUntouched(){
+        Booking one=create();int before=history.size();
+        assertTrue(service.reschedule(one.id,start,game,arena,"same").success());assertEquals(before,history.size());
+    }
+    @Test void cancelReturnsRecordedPrepaymentWithoutExecutingRefund(){
+        Booking one=service.create(1,game,tariff,arena,start,2,new BigDecimal("100.00"));
+        assertEquals(new BigDecimal("100.00"),service.cancel(one.id,"cancel"));
+        assertEquals(BookingStatus.CANCELLED,one.status());
+    }
+    @Test void finishReturnsOvertime(){
+        Booking one=create();Session s=new Session(1,one);SessionService sessions=new SessionService(clock,bookings);
+        sessions.start(s,one);clock.now=clock.now.plusSeconds(90*60);
+        assertEquals(30,sessions.finish(s).overtimeMin());
+    }
+    @Test void startRejectsBookingOutsideService(){
+        Booking foreign=new Booking(99,1,1,1,1,start,60,2,BigDecimal.ZERO,clock.instant());
+        Session s=new Session(1,foreign);
+        assertThrows(IllegalArgumentException.class,()->new SessionService(clock,bookings).start(s,foreign));
     }
 }

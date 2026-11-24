@@ -57,7 +57,7 @@ def check_slot_availability(
     if start < now:
         return SlotCheckResult(False, Reason.IN_THE_PAST)
     usable = sum(
-        kit.arena_id == arena_id and kit.status != EquipmentStatus.FAULTY
+        kit.arena_id == arena_id and kit.is_available_for_issue()
         for kit in kits
     )
     if usable < players:

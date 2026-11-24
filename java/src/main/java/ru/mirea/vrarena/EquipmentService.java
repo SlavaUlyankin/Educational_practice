@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.Set;
 
 public final class EquipmentService {
+    public record ReplaceOutcome(boolean faultRecorded,Long replacementId,String reason) { }
     private final Clock clock; private final List<EquipmentSet> kits; private final List<SessionEquipment> issues; private final List<EquipmentStatusLog> log;
     public EquipmentService(Clock clock,List<EquipmentSet> kits,List<SessionEquipment> issues,List<EquipmentStatusLog> log){this.clock=Objects.requireNonNull(clock);this.kits=Objects.requireNonNull(kits);this.issues=Objects.requireNonNull(issues);this.log=Objects.requireNonNull(log);}
     public void changeStatus(EquipmentSet kit,EquipmentStatus target,String comment){
@@ -22,10 +23,11 @@ public final class EquipmentService {
         if(!allowed) throw new IllegalStateException("INVALID_TRANSITION");
         kit.setStatus(target);log.add(new EquipmentStatusLog(kit.id,old,target,clock.instant(),comment));
     }
-    public List<Long> issue(Session session,long arenaId){
+    public List<Long> issue(Session session){
         if(session.status()!=SessionStatus.PREPARED) throw new IllegalStateException("INVALID_STATE");
+        session.verifyBookable();
         if(issues.stream().anyMatch(r->r.sessionId==session.id && r.returnedAt()==null)) throw new IllegalStateException("ALREADY_ISSUED");
-        List<EquipmentSet> selected=kits.stream().filter(k->k.arenaId==arenaId && k.status()==EquipmentStatus.AVAILABLE).limit(session.playersCount).toList();
+        List<EquipmentSet> selected=kits.stream().filter(k->k.arenaId==session.arenaId && k.isAvailableForIssue()).limit(session.playersCount).toList();
         if(selected.size()<session.playersCount) throw new IllegalStateException("NOT_ENOUGH_AVAILABLE");
         Instant now=clock.instant();List<Long> ids=new ArrayList<>();
         for(EquipmentSet kit:selected){changeStatus(kit,EquipmentStatus.ISSUED,"выдан в сеанс");issues.add(new SessionEquipment(session.id,kit.id,now));ids.add(kit.id);}
@@ -44,14 +46,15 @@ public final class EquipmentService {
         for(SessionEquipment row:active){String condition=conditions.get(row.equipmentId);EquipmentSet kit=find(row.equipmentId);row.returned(now,condition);EquipmentStatus target=condition.equals("damaged")?EquipmentStatus.FAULTY:EquipmentStatus.RETURNED_PENDING;if(kit.status()!=target)changeStatus(kit,target,"возврат из сеанса");ids.add(kit.id);}
         return List.copyOf(ids);
     }
-    public long replace(Session session,long faultyId){
+    public ReplaceOutcome replace(Session session,long faultyId){
         if(session.status()!=SessionStatus.IN_PROGRESS) throw new IllegalStateException("INVALID_STATE");
         SessionEquipment row=issues.stream().filter(r->r.sessionId==session.id && r.equipmentId==faultyId && r.returnedAt()==null).findFirst().orElseThrow(()->new IllegalStateException("NOT_ISSUED"));
-        EquipmentSet kit=find(faultyId);if(kit.status()!=EquipmentStatus.ISSUED && kit.status()!=EquipmentStatus.FAULTY)throw new IllegalStateException("INCONSISTENT_STATE");
+        EquipmentSet kit=find(faultyId);if(kit.arenaId!=session.arenaId || (kit.status()!=EquipmentStatus.ISSUED && kit.status()!=EquipmentStatus.FAULTY))throw new IllegalStateException("INCONSISTENT_STATE");
         if(kit.status()==EquipmentStatus.ISSUED)changeStatus(kit,EquipmentStatus.FAULTY,"неисправность во время сеанса");
         row.returned(clock.instant(),"damaged");
-        EquipmentSet replacement=kits.stream().filter(k->k.arenaId==kit.arenaId && k.kind==kit.kind && k.status()==EquipmentStatus.AVAILABLE).findFirst().orElseThrow(()->new IllegalStateException("NO_REPLACEMENT"));
-        changeStatus(replacement,EquipmentStatus.ISSUED,"замена комплекта");issues.add(new SessionEquipment(session.id,replacement.id,clock.instant()));return replacement.id;
+        EquipmentSet replacement=kits.stream().filter(k->k.arenaId==session.arenaId && k.kind==kit.kind && k.isAvailableForIssue()).findFirst().orElse(null);
+        if(replacement==null)return new ReplaceOutcome(true,null,"NO_REPLACEMENT");
+        changeStatus(replacement,EquipmentStatus.ISSUED,"замена комплекта");issues.add(new SessionEquipment(session.id,replacement.id,clock.instant()));return new ReplaceOutcome(true,replacement.id,"OK");
     }
     private EquipmentSet find(long id){return kits.stream().filter(k->k.id==id).findFirst().orElseThrow(()->new IllegalStateException("INCONSISTENT_STATE"));}
 }

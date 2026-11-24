@@ -37,14 +37,16 @@ def change_status(kit: EquipmentSet, new_status: Union[EquipmentStatus, str],
 
 
 def select_available(kits: list[EquipmentSet], players: int,
-                     kind: Optional[EquipmentKind] = None
+                     kind: Optional[EquipmentKind] = None,
+                     arena_id: Optional[int] = None
                      ) -> tuple[Code, list[EquipmentSet], int]:
     """А3.2. Подбор доступных комплектов (только статус available)."""
     if players < 1:
         return Code.INVALID_INPUT, [], 0
     selected: list[EquipmentSet] = []
     for kit in kits:
-        if kit.status == EquipmentStatus.AVAILABLE and (kind is None or kit.kind == kind):
+        if (kit.is_available_for_issue() and (kind is None or kit.kind == kind)
+                and (arena_id is None or kit.arena_id == arena_id)):
             selected.append(kit)
             if len(selected) == players:
                 break
@@ -65,7 +67,7 @@ def issue_equipment(session: Session, kits: list[EquipmentSet],
     for r in rows:
         if r.session_id == session.session_id and r.returned_at is None:
             return Code.ALREADY_ISSUED, [], 0
-    code, selected, shortage = select_available(kits, session.players_count, kind)
+    code, selected, shortage = select_available(kits, session.players_count, kind, session.arena_id)
     if code != Code.OK:
         return code, [], shortage
     for kit in selected:
@@ -119,14 +121,15 @@ def replace_equipment(session: Session, faulty_id: int, kits: list[EquipmentSet]
     if row is None:
         return Code.NOT_ISSUED, None
     kit = next((k for k in kits if k.equipment_id == faulty_id), None)
-    if kit is None or kit.status not in (EquipmentStatus.ISSUED, EquipmentStatus.FAULTY):
+    if (kit is None or kit.arena_id != session.arena_id
+            or kit.status not in (EquipmentStatus.ISSUED, EquipmentStatus.FAULTY)):
         return Code.INCONSISTENT_STATE, None
     if kit.status == EquipmentStatus.ISSUED:
         change_status(kit, EquipmentStatus.FAULTY, now,
                       "неисправность во время сеанса", log)
     row.returned_at = now
     row.return_condition = "damaged"
-    code, selected, _ = select_available(kits, 1, kit.kind)
+    code, selected, _ = select_available(kits, 1, kit.kind, session.arena_id)
     if code != Code.OK:
         return Code.NO_REPLACEMENT, None
     new = selected[0]

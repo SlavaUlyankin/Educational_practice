@@ -57,6 +57,8 @@ def reschedule_booking(
     if now >= b.start:
         return Code.TOO_LATE, None, []
     target_arena = b.arena_id if new_arena_id is None else new_arena_id
+    if new_start == b.start and target_arena == b.arena_id:
+        return Code.OK, SlotCheckResult(True, Reason.OK), []
     r = check_slot_availability(
         new_start, b.duration_min, b.players, game_min, game_max,
         bookings, kits, now, prep_min, b.booking_id, target_arena,

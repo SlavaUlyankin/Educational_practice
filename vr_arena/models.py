@@ -153,6 +153,8 @@ class Session:
     status: SessionStatus = SessionStatus.PREPARED
     started_at: Optional[datetime] = None
     actual_end_at: Optional[datetime] = None
+    arena_id: int = 1
+    booking_id: Optional[int] = None
 
 
 @dataclass
@@ -162,6 +164,10 @@ class EquipmentSet:
     kind: EquipmentKind = EquipmentKind.HEADSET
     status: EquipmentStatus = EquipmentStatus.AVAILABLE
     arena_id: int = 1
+
+    def is_available_for_issue(self) -> bool:
+        """Текущее состояние, без прогноза подготовки к будущему сеансу."""
+        return self.status == EquipmentStatus.AVAILABLE
 
 
 @dataclass

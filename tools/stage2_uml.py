@@ -10,9 +10,9 @@ ax.set(xlim=(0,12),ylim=(0,14));ax.axis('off')
 classes=[
 ('Client',['id; fullName; phone','email; createdAt']),('Game',['id; title','minPlayers; maxPlayers']),('Tariff',['id; gameId; name','durationMin; price']),
 ('Arena',['id; name; capacity','prepMin; active']),('Booking',['id; clientId; arenaId','gameId; tariffId; start; status']),('BookingHistory',['id; bookingId; eventType','old/new time, arena; reason']),
-('Session',['id; status; durationMin','startedAt; actualEndAt']),('SessionEquipment',['sessionId; equipmentId','issuedAt; returnedAt; condition']),('EquipmentSet',['id; arenaId; inventoryCode','kind; status']),
+('Session',['id; bookingId; arenaId','status; durationMin; times']),('SessionEquipment',['sessionId; equipmentId','issuedAt; returnedAt; condition']),('EquipmentSet',['id; arenaId; kind; status','isAvailableForIssue()']),
 ('EquipmentStatusLog',['equipmentId; oldStatus','newStatus; changedAt; comment']),('«enumeration»',['BookingStatus; SessionStatus','EquipmentStatus; BookingEventType']),('«JDK» Clock',['instant()','Источник времени для сервисов']),
-('BookingService',['checkSlot(); create();','cancel(); reschedule(); markNoShow()']),('SessionService',['start(); timeState();','finish()']),('EquipmentService',['changeStatus(); issue();','returnEquipment(); replace()'])]
+('BookingService',['checkSlot(); create();','cancel(); reschedule(); markNoShow()']),('SessionService',['start(); timeState();','finish(): FinishReport']),('EquipmentService',['changeStatus(); issue();','returnEquipment(); replace(): outcome'])]
 for i,(name,fields) in enumerate(classes):
     col=i%3;row=i//3;x=.25+col*3.95;y=12.9-row*2.45;w=3.65;h=1.25
     ax.add_patch(Rectangle((x,y-h),w,h,facecolor='#f4f7fa' if i<12 else '#fff7e8',edgecolor='#1d2c42',lw=1.3))

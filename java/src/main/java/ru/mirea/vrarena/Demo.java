@@ -24,10 +24,10 @@ public final class Demo {
         System.out.println("Перенос на занятый слот: "+booking.reschedule(b3.id,at("19:30"),game,arena,"запрос").check().code());
         booking.cancel(b2.id,"запрос");System.out.println("Отмена брони 2: "+b2.status());
         System.out.println("Повторный перенос: "+booking.reschedule(b3.id,at("19:30"),game,arena,"запрос").success());
-        Session session=new Session(1,4,60);EquipmentService equipment=new EquipmentService(clock("18:02"),kits,issues,log);
-        System.out.println("Выданные комплекты: "+equipment.issue(session,1));
+        Session session=new Session(1,b1);EquipmentService equipment=new EquipmentService(clock("18:02"),kits,issues,log);
+        System.out.println("Выданные комплекты: "+equipment.issue(session));
         new SessionService(clock("18:02"),bookings).start(session,b1);
-        System.out.println("Замена комплекта 2: "+equipment.replace(session,2));
+        System.out.println("Замена комплекта 2: "+equipment.replace(session,2).replacementId());
         System.out.println("Время сеанса в 19:04: "+new SessionService(clock("19:04"),bookings).timeState(session,5));
         new SessionService(clock("19:09"),bookings).finish(session);
         equipment=new EquipmentService(clock("19:09"),kits,issues,log);

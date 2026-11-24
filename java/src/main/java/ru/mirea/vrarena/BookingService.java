@@ -10,6 +10,7 @@ import java.util.Objects;
 
 /** Проверка слотов, операции с бронью и журнал успешных изменений. */
 public final class BookingService {
+    private static final int NO_SHOW_WAIT_MIN=15, STEP_MIN=15, HORIZON_MIN=240, MAX_ALTERNATIVES=3;
     public enum SlotCode { OK, INVALID_INPUT, PLAYERS_OUT_OF_RANGE, IN_THE_PAST, NOT_ENOUGH_KITS, CONFLICT }
     public record SlotResult(SlotCode code, Long conflictId) { public boolean available(){ return code==SlotCode.OK; } }
     public record MoveResult(boolean success, SlotResult check, List<Instant> alternatives) { }
@@ -22,7 +23,7 @@ public final class BookingService {
         if(duration<=0 || players<1 || !arena.active()) return new SlotResult(SlotCode.INVALID_INPUT,null);
         if(players<game.minPlayers() || players>game.maxPlayers() || players>arena.capacity()) return new SlotResult(SlotCode.PLAYERS_OUT_OF_RANGE,null);
         if(start.isBefore(clock.instant())) return new SlotResult(SlotCode.IN_THE_PAST,null);
-        long usable=kits.stream().filter(k->k.arenaId==arena.id() && k.status()!=EquipmentStatus.FAULTY).count();
+        long usable=kits.stream().filter(k->k.arenaId==arena.id() && k.isAvailableForIssue()).count();
         if(usable<players) return new SlotResult(SlotCode.NOT_ENOUGH_KITS,null);
         Instant end=start.plus(Duration.ofMinutes((long)duration+arena.prepMin()));
         for(Booking b:bookings) {
@@ -41,17 +42,21 @@ public final class BookingService {
         Booking b=new Booking(id,clientId,game.id(),tariff.id(),arena.id(),start,tariff.durationMin(),players,prepaidAmount,now);
         bookings.add(b);record(b,BookingEventType.CREATED,now,null,start,null,arena.id(),"оформление брони");return b;
     }
-    public void cancel(long id,String reason) {
+    /** Возвращает учтённую предоплату для ручного решения; платёж не выполняется. */
+    public BigDecimal cancel(long id,String reason) {
         Booking b=active(id); Instant now=clock.instant(); if(!now.isBefore(b.start())) throw new IllegalStateException("TOO_LATE");
-        b.setStatus(BookingStatus.CANCELLED);record(b,BookingEventType.CANCELLED,now,b.start(),null,b.arenaId(),null,reason);
+        b.setStatus(BookingStatus.CANCELLED);record(b,BookingEventType.CANCELLED,now,b.start(),null,b.arenaId(),null,reason);return b.prepaidAmount;
     }
     public MoveResult reschedule(long id,Instant newStart,Game game,Arena target,String reason) {
         Booking b=active(id);Instant now=clock.instant();if(!now.isBefore(b.start())) throw new IllegalStateException("TOO_LATE");
         if(game.id()!=b.gameId) throw new IllegalArgumentException("game mismatch");
+        Objects.requireNonNull(newStart); Objects.requireNonNull(target);
+        if(newStart.equals(b.start()) && target.id()==b.arenaId())
+            return new MoveResult(true,new SlotResult(SlotCode.OK,null),List.of());
         SlotResult check=checkSlot(newStart,b.durationMin,b.players,game,target,b.id);
         if(!check.available()) {
             List<Instant> alternatives=new ArrayList<>();
-            if(check.code()==SlotCode.CONFLICT) for(int minutes=15;minutes<=240 && alternatives.size()<3;minutes+=15) {
+            if(check.code()==SlotCode.CONFLICT) for(int minutes=STEP_MIN;minutes<=HORIZON_MIN && alternatives.size()<MAX_ALTERNATIVES;minutes+=STEP_MIN) {
                 Instant candidate=newStart.plus(Duration.ofMinutes(minutes));
                 if(checkSlot(candidate,b.durationMin,b.players,game,target,b.id).available()) alternatives.add(candidate);
             }
@@ -63,7 +68,7 @@ public final class BookingService {
     }
     public void markNoShow(long id,String reason) {
         Booking b=active(id);Instant now=clock.instant();
-        if(now.isBefore(b.start().plus(Duration.ofMinutes(15)))) throw new IllegalStateException("TOO_EARLY");
+        if(now.isBefore(b.start().plus(Duration.ofMinutes(NO_SHOW_WAIT_MIN)))) throw new IllegalStateException("TOO_EARLY");
         b.setStatus(BookingStatus.NO_SHOW);record(b,BookingEventType.NO_SHOW,now,b.start(),null,b.arenaId(),null,reason);
     }
     private Booking active(long id) {
