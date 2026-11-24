@@ -10,6 +10,10 @@ java/.m2/
 AGENTS.md
 tools/
 docs/standards/
+ai_journal.md
+CHANGELOG_этап4.md
+проверка_оформления_отчёта.md
+этап1_проверка.md
 
 # Оставляем в репозитории один актуальный отчёт; копии и предпросмотры — локально.
 docs/report/backups/
