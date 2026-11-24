@@ -1,14 +1,25 @@
 __pycache__/
 *.pyc
-docs/report/rendered/
-docs/report/stage1_review.pdf
-docs/standards/diagram_check/
-docs/report/*_этап1.docx
-docs/report/*_этап2.docx
-docs/report/*_этап3.docx
-docs/report/*_ООП_готово.docx
 ~$*.docx
 java/target/
 java/.m2/
 .idea/
 *.iml
+
+# Локальные служебные инструкции и одноразовые инструменты подготовки отчёта.
+AGENTS.md
+tools/
+docs/standards/
+
+# Оставляем в репозитории один актуальный отчёт; копии и предпросмотры — локально.
+docs/report/backups/
+docs/report/rendered/
+docs/report/*.pdf
+docs/report/*.docx
+!docs/report/Ульянкин_ВИ_ИКБО-30-24_Учебная_практика_этап4_оформление.docx
+
+# Промежуточные материалы отдельных этапов.
+docs/review_package.md
+docs/review_template.md
+docs/таблица_сообщений_этап1.md
+docs/этап1_проверка.md
