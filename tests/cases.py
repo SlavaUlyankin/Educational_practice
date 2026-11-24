@@ -485,4 +485,9 @@ E2E_CASES = [
          "OK(id=1)|CONFLICT(id=1)|alt=19:15,19:30,19:45|cancel=OK|retry=OK(id=2)|n=2", _e2e_2),
 ]
 
-ALL_GROUPS = {"А1": A1_CASES, "А2": A2_CASES, "А3": A3_CASES, "А4": A4_CASES, "Сквозные": E2E_CASES}
+from tests.stage1_cases import ER_CASES
+
+ALL_GROUPS = {
+    "А1": A1_CASES, "А2": A2_CASES, "А3": A3_CASES,
+    "А5": A4_CASES, "Сквозные": E2E_CASES, "ER и история": ER_CASES,
+}

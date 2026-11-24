@@ -1,7 +1,8 @@
-"""Автоматические тесты: запуск `python -m unittest discover -v` из корня проекта."""
+"""Автоматические тесты: `python -m unittest discover -v` из корня проекта."""
 import unittest
 
 from tests.cases import A1_CASES, A2_CASES, A3_CASES, A4_CASES, E2E_CASES
+from tests.stage1_cases import ER_CASES
 
 
 def _make(cases):
@@ -18,6 +19,7 @@ class TestAlgorithms(unittest.TestCase):
     test_a3_equipment = _make(A3_CASES)
     test_a4_bookings = _make(A4_CASES)
     test_end_to_end = _make(E2E_CASES)
+    test_er_consistency = _make(ER_CASES)
 
 
 if __name__ == "__main__":

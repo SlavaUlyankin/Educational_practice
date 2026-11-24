@@ -2,13 +2,13 @@
 from datetime import datetime
 
 from vr_arena.a1_slots import create_booking
-from vr_arena.a2_session_time import (
-    finish_session, session_time_state, start_session)
-from vr_arena.a3_equipment import (
-    change_status, issue_equipment, replace_equipment, return_equipment)
+from vr_arena.a2_session_time import finish_session, session_time_state, start_session
+from vr_arena.a3_equipment import change_status, issue_equipment, replace_equipment, return_equipment
 from vr_arena.a4_bookings import cancel_booking, mark_no_show, reschedule_booking
 from vr_arena.models import (
-    Booking, EquipmentSet, EquipmentStatus, Session, SessionEquipment, StatusLogEntry)
+    Booking, BookingHistory, EquipmentSet, EquipmentStatus,
+    Session, SessionEquipment, StatusLogEntry,
+)
 
 
 def t(h: int, m: int = 0) -> datetime:
@@ -17,23 +17,25 @@ def t(h: int, m: int = 0) -> datetime:
 
 def show(bookings):
     for b in sorted(bookings, key=lambda x: x.start):
-        end = b.start.strftime("%H:%M")
-        print(f"   бронь {b.booking_id}: {end}, {b.duration_min} мин, "
-              f"{b.players} игр., статус {b.status.value}")
+        print(f"   бронь {b.booking_id}: {b.start:%H:%M}, {b.duration_min} мин, "
+              f"{b.players} игр., арена {b.arena_id}, статус {b.status.value}")
 
 
-GMIN, GMAX = 2, 6                       # игра допускает 2–6 игроков
+GMIN, GMAX = 2, 6
 now = t(12)
 kits = [EquipmentSet(i, f"SET-{i:02d}") for i in range(1, 9)]
 bookings: list[Booking] = []
+history: list[BookingHistory] = []
 rows: list[SessionEquipment] = []
 log: list[StatusLogEntry] = []
 
 print("1. Бронирование (А1)")
 for client, start, dur, pl in [(101, t(18), 60, 4), (102, t(19), 30, 3),
                                (103, t(19, 15), 45, 5), (104, t(20, 30), 45, 6)]:
-    b, r, alt = create_booking(client, 1, 3, start, dur, pl, 0.0, GMIN, GMAX,
-                               bookings, kits, now)
+    b, r, alt = create_booking(
+        client, 1, 3, start, dur, pl, 0.0, GMIN, GMAX,
+        bookings, kits, now, history=history,
+    )
     if b:
         print(f"   клиент {client}, {start:%H:%M}, {dur} мин: бронь {b.booking_id} подтверждена")
     else:
@@ -42,13 +44,17 @@ for client, start, dur, pl in [(101, t(18), 60, 4), (102, t(19), 30, 3),
               + ", ".join(a.strftime("%H:%M") for a in alt))
 show(bookings)
 
-print("\n2. Перенос и отмена (А4)")
-code, r, alt = reschedule_booking(bookings, 3, t(19, 30), kits, GMIN, GMAX, now)
+print("\n2. Перенос и отмена (А5)")
+code, r, alt = reschedule_booking(
+    bookings, 3, t(19, 30), kits, GMIN, GMAX, now, history=history,
+)
 print(f"   перенос брони 3 (20:30) на 19:30 -> {code.value}, причина {r.reason.value} "
       f"(бронь {r.conflict_booking_id})")
-code, amount = cancel_booking(bookings, 2, now)
+code, amount = cancel_booking(bookings, 2, now, history)
 print(f"   отмена брони 2 -> {code.value}, предоплата {amount}")
-code, r, alt = reschedule_booking(bookings, 3, t(19, 30), kits, GMIN, GMAX, now)
+code, r, alt = reschedule_booking(
+    bookings, 3, t(19, 30), kits, GMIN, GMAX, now, history=history,
+)
 print(f"   повторный перенос брони 3 на 19:30 -> {code.value}")
 show(bookings)
 
@@ -78,10 +84,18 @@ for k in kits:
         change_status(k, EquipmentStatus.AVAILABLE, t(19, 40), "готов", log)
 print("   статусы комплектов:", ", ".join(f"{k.inventory_code}={k.status.value}" for k in kits))
 
-print("\n5. Неявка (А4)")
-code = mark_no_show(bookings, 3, t(19, 44), 15)
+print("\n5. Неявка (А5)")
+code = mark_no_show(bookings, 3, t(19, 44), 15, history)
 print(f"   бронь 3 (19:30), проверка в 19:44 -> {code.value}")
-code = mark_no_show(bookings, 3, t(19, 45), 15)
+code = mark_no_show(bookings, 3, t(19, 45), 15, history)
 print(f"   бронь 3 (19:30), проверка в 19:45 -> {code.value}")
 show(bookings)
+
+print("\n6. История изменений бронирований")
+for e in history:
+    old = e.old_start_time.strftime("%H:%M") if e.old_start_time else "—"
+    new = e.new_start_time.strftime("%H:%M") if e.new_start_time else "—"
+    print(f"   #{e.history_id}: бронь {e.booking_id}, {e.event_type.value}, "
+          f"{old} → {new}, арена {e.old_arena_id} → {e.new_arena_id}")
 print(f"\nЗаписей в журнале статусов: {len(log)}")
+print(f"Записей в истории бронирований: {len(history)}")

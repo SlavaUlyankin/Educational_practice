@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+docs/report/rendered/
+docs/report/stage1_review.pdf
+docs/standards/diagram_check/

@@ -1,4 +1,4 @@
-"""Алгоритм А1 — проверка доступности слота (рис. 10, таблицы 12–14)."""
+"""Алгоритм А1 — проверка доступности слота и создание брони."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -6,9 +6,40 @@ from typing import Optional
 
 from .models import (
     HORIZON_H, MAX_ALTERNATIVES, PREP_MIN, STEP_MIN,
-    Booking, BookingStatus, EquipmentSet, EquipmentStatus,
-    Reason, SlotCheckResult,
+    Booking, BookingEventType, BookingHistory, BookingStatus,
+    EquipmentSet, EquipmentStatus, Reason, SlotCheckResult,
 )
+
+
+def append_booking_history(
+    history: list[BookingHistory], booking_id: int,
+    event_type: BookingEventType, changed_at: datetime,
+    old_start_time: Optional[datetime], new_start_time: Optional[datetime],
+    old_arena_id: Optional[int], new_arena_id: Optional[int],
+    reason: Optional[str] = None,
+) -> BookingHistory:
+    """Добавляет запись аудита; саму бронь функция не изменяет."""
+    entry = BookingHistory(
+        max((item.history_id for item in history), default=0) + 1,
+        booking_id, event_type, changed_at,
+        old_start_time, new_start_time, old_arena_id, new_arena_id, reason,
+    )
+    history.append(entry)
+    return entry
+
+
+def record_booking_event(booking, history, event_type, changed_at,
+                         old_start_time, new_start_time, old_arena_id,
+                         new_arena_id, reason):
+    """Сохраняет событие в брони и при наличии — в общем журнале."""
+    target = booking.history if history is None else history
+    next_id = max((item.history_id for item in booking.history + target), default=0) + 1
+    entry = append_booking_history(target, booking.booking_id, event_type, changed_at,
+                                   old_start_time, new_start_time, old_arena_id,
+                                   new_arena_id, reason)
+    entry.history_id = next_id
+    if target is not booking.history:
+        booking.history.append(entry)
 
 
 def check_slot_availability(
@@ -16,41 +47,29 @@ def check_slot_availability(
     game_min: int, game_max: int,
     bookings: list[Booking], kits: list[EquipmentSet],
     now: datetime, prep_min: int = PREP_MIN,
-    exclude_id: Optional[int] = None,
+    exclude_id: Optional[int] = None, arena_id: int = 1,
 ) -> SlotCheckResult:
-    """А1.1. Можно ли подтвердить бронь на [start; start + duration + prep).
-
-    Расписание не изменяется. exclude_id — бронь, которую нужно игнорировать
-    (при переносе бронь не должна конфликтовать сама с собой).
-    """
-    # Шаг 1: корректность входных данных (D1)
-    if duration_min <= 0 or players < 1 or prep_min < 0:
+    """Проверяет [start; start + duration + prep) только внутри одной арены."""
+    if duration_min <= 0 or players < 1 or prep_min < 0 or arena_id < 1:
         return SlotCheckResult(False, Reason.INVALID_INPUT)
-    # Шаг 2: число игроков в границах игры (D2)
     if players < game_min or players > game_max:
         return SlotCheckResult(False, Reason.PLAYERS_OUT_OF_RANGE)
-    # Шаг 3: слот не в прошлом (D3); start == now допускается
     if start < now:
         return SlotCheckResult(False, Reason.IN_THE_PAST)
-    # Шаг 4: число работоспособных комплектов (P1)
-    usable = 0
-    for kit in kits:
-        if kit.status != EquipmentStatus.FAULTY:
-            usable += 1
-    # Шаг 5: хватает ли комплектов (D4)
+    usable = sum(
+        kit.arena_id == arena_id and kit.status != EquipmentStatus.FAULTY
+        for kit in kits
+    )
     if usable < players:
         return SlotCheckResult(False, Reason.NOT_ENOUGH_KITS)
-    # Шаг 6: занятый интервал новой брони (P2)
     new_end = start + timedelta(minutes=duration_min + prep_min)
-    # Шаг 7: цикл по броням расписания (D5–D7)
     for b in bookings:
-        if b.status != BookingStatus.CONFIRMED or b.booking_id == exclude_id:
+        if (b.arena_id != arena_id or b.status != BookingStatus.CONFIRMED
+                or b.booking_id == exclude_id):
             continue
         b_end = b.start + timedelta(minutes=b.duration_min + prep_min)
-        # полуоткрытые интервалы: общая граница не считается пересечением
         if start < b_end and b.start < new_end:
             return SlotCheckResult(False, Reason.CONFLICT, b.booking_id)
-    # Шаг 8: конфликтов нет
     return SlotCheckResult(True, Reason.OK)
 
 
@@ -61,15 +80,17 @@ def find_alternative_slots(
     now: datetime, prep_min: int = PREP_MIN,
     exclude_id: Optional[int] = None,
     step_min: int = STEP_MIN, horizon_h: int = HORIZON_H,
-    max_results: int = MAX_ALTERNATIVES,
+    max_results: int = MAX_ALTERNATIVES, arena_id: int = 1,
 ) -> list[datetime]:
-    """А1.2. Ближайшие свободные начала после желаемого (не более max_results)."""
+    """Возвращает ближайшие свободные начала, не более max_results."""
     result: list[datetime] = []
     t = start + timedelta(minutes=step_min)
     limit = start + timedelta(hours=horizon_h)
     while t <= limit and len(result) < max_results:
-        r = check_slot_availability(t, duration_min, players, game_min, game_max,
-                                    bookings, kits, now, prep_min, exclude_id)
+        r = check_slot_availability(
+            t, duration_min, players, game_min, game_max,
+            bookings, kits, now, prep_min, exclude_id, arena_id,
+        )
         if r.available:
             result.append(t)
         t += timedelta(minutes=step_min)
@@ -84,19 +105,31 @@ def create_booking(
     now: datetime, prep_min: int = PREP_MIN,
     step_min: int = STEP_MIN, horizon_h: int = HORIZON_H,
     max_results: int = MAX_ALTERNATIVES,
+    history: Optional[list[BookingHistory]] = None, arena_id: int = 1,
 ) -> tuple[Optional[Booking], SlotCheckResult, list[datetime]]:
-    """А1.3. Проверка и запись брони одним действием (без промежуточных вызовов)."""
-    r = check_slot_availability(start, duration_min, players, game_min, game_max,
-                                bookings, kits, now, prep_min)
+    """Проверяет слот, создаёт бронь и при успехе пишет событие created."""
+    r = check_slot_availability(
+        start, duration_min, players, game_min, game_max,
+        bookings, kits, now, prep_min, arena_id=arena_id,
+    )
     if not r.available:
         alt: list[datetime] = []
         if r.reason == Reason.CONFLICT:
-            alt = find_alternative_slots(start, duration_min, players, game_min,
-                                         game_max, bookings, kits, now, prep_min,
-                                         None, step_min, horizon_h, max_results)
+            alt = find_alternative_slots(
+                start, duration_min, players, game_min, game_max,
+                bookings, kits, now, prep_min, None,
+                step_min, horizon_h, max_results, arena_id,
+            )
         return None, r, alt
     new_id = max((b.booking_id for b in bookings), default=0) + 1
-    b = Booking(new_id, client_id, game_id, tariff_id, start, duration_min,
-                players, prepaid_amount, BookingStatus.CONFIRMED, None)
+    b = Booking(
+        booking_id=new_id, client_id=client_id, game_id=game_id,
+        tariff_id=tariff_id, start=start, duration_min=duration_min,
+        players=players, prepaid_amount=prepaid_amount,
+        status=BookingStatus.CONFIRMED, session_id=None,
+        arena_id=arena_id, created_at=now,
+    )
     bookings.append(b)
+    record_booking_event(b, history, BookingEventType.CREATED, now,
+                         None, b.start, None, b.arena_id, "оформление брони")
     return b, r, []

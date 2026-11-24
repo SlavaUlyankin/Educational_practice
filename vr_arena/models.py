@@ -1,23 +1,30 @@
-"""Модели данных и параметры (соответствуют ER-диаграмме, рис. 9, и таблице 11)."""
+"""Модели данных процедурного прототипа: десять сущностей ER-модели."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import NamedTuple, Optional
 
-# --- Параметры точки (таблица 11; значения предполагаемые, не из источников) ---
-PREP_MIN: int = 10          # интервал на подготовку между сеансами, мин
-WARN_MIN: int = 5           # порог «сеанс подходит к концу», мин
-NO_SHOW_WAIT_MIN: int = 15  # срок ожидания группы до фиксации неявки, мин
-STEP_MIN: int = 15          # шаг поиска альтернативных слотов, мин
-HORIZON_H: int = 4          # горизонт поиска альтернатив, часов
-MAX_ALTERNATIVES: int = 3   # максимум предлагаемых альтернатив
+# Параметры точки по умолчанию; у конкретной арены prep_min может отличаться.
+PREP_MIN: int = 10
+WARN_MIN: int = 5
+NO_SHOW_WAIT_MIN: int = 15
+STEP_MIN: int = 15
+HORIZON_H: int = 4
+MAX_ALTERNATIVES: int = 3
 
 
 class BookingStatus(str, Enum):
     CONFIRMED = "confirmed"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    NO_SHOW = "no_show"
+
+
+class BookingEventType(str, Enum):
+    CREATED = "created"
+    RESCHEDULED = "rescheduled"
     CANCELLED = "cancelled"
     NO_SHOW = "no_show"
 
@@ -42,7 +49,7 @@ class EquipmentKind(str, Enum):
 
 
 class Reason(str, Enum):
-    """Результат проверки слота (алгоритм А1.1)."""
+    """Результат проверки слота (алгоритм А1)."""
     OK = "OK"
     INVALID_INPUT = "INVALID_INPUT"
     PLAYERS_OUT_OF_RANGE = "PLAYERS_OUT_OF_RANGE"
@@ -52,7 +59,7 @@ class Reason(str, Enum):
 
 
 class Code(str, Enum):
-    """Коды результата операций А2, А3, А4."""
+    """Коды результата операций А2–А5."""
     OK = "OK"
     NOT_FOUND = "NOT_FOUND"
     INVALID_STATE = "INVALID_STATE"
@@ -74,7 +81,6 @@ class Code(str, Enum):
 
 
 class TimeState(str, Enum):
-    """Состояние сеанса по времени (алгоритм А2.2)."""
     NOT_STARTED = "NOT_STARTED"
     RUNNING = "RUNNING"
     ENDING_SOON = "ENDING_SOON"
@@ -84,8 +90,46 @@ class TimeState(str, Enum):
 
 
 @dataclass
+class Client:
+    client_id: int
+    full_name: str
+    phone: str
+    email: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+@dataclass
+class Game:
+    game_id: int
+    title: str
+    min_players: int = 1
+    max_players: int = 10
+    allows_group_merge: bool = False
+
+
+@dataclass
+class Tariff:
+    tariff_id: int
+    name: str
+    duration_min: int
+    price_per_player: float
+    prepayment_required: bool = False
+    game_id: Optional[int] = None
+    is_active: bool = True
+
+
+@dataclass
+class Arena:
+    arena_id: int
+    name: str
+    capacity: int
+    prep_min: int = PREP_MIN
+    is_active: bool = True
+
+
+@dataclass
 class Booking:
-    """Бронирование. duration_min берётся из тарифа при создании (в ER хранится в тарифе)."""
+    """Бронирование; duration_min — снимок длительности выбранного тарифа."""
     booking_id: int
     client_id: int
     game_id: int
@@ -96,11 +140,13 @@ class Booking:
     prepaid_amount: float = 0.0
     status: BookingStatus = BookingStatus.CONFIRMED
     session_id: Optional[int] = None
+    arena_id: int = 1
+    created_at: Optional[datetime] = None
+    history: list[BookingHistory] = field(default_factory=list, repr=False, compare=False)
 
 
 @dataclass
 class Session:
-    """Сеанс. duration_min — плановая длительность по тарифу."""
     session_id: int
     players_count: int
     duration_min: int
@@ -115,25 +161,44 @@ class EquipmentSet:
     inventory_code: str
     kind: EquipmentKind = EquipmentKind.HEADSET
     status: EquipmentStatus = EquipmentStatus.AVAILABLE
+    arena_id: int = 1
 
 
 @dataclass
 class SessionEquipment:
-    """Выдача комплекта в сеанс (связующая таблица)."""
     session_id: int
     equipment_id: int
     issued_at: datetime
     returned_at: Optional[datetime] = None
-    return_condition: Optional[str] = None  # "ok" или "damaged"
+    return_condition: Optional[str] = None
 
 
 @dataclass
 class StatusLogEntry:
+    """Запись сущности equipment_status_log."""
     equipment_id: int
     old_status: Optional[EquipmentStatus]
     new_status: EquipmentStatus
     changed_at: datetime
     comment: Optional[str] = None
+    log_id: Optional[int] = None
+
+
+# Название, совпадающее с сущностью ER; прежнее имя сохранено для совместимости.
+EquipmentStatusLog = StatusLogEntry
+
+
+@dataclass
+class BookingHistory:
+    history_id: int
+    booking_id: int
+    event_type: BookingEventType
+    changed_at: datetime
+    old_start_time: Optional[datetime] = None
+    new_start_time: Optional[datetime] = None
+    old_arena_id: Optional[int] = None
+    new_arena_id: Optional[int] = None
+    reason: Optional[str] = None
 
 
 @dataclass
