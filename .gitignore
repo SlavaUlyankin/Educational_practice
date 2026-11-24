@@ -6,3 +6,7 @@ docs/standards/diagram_check/
 docs/report/*_этап1.docx
 docs/report/*_этап2.docx
 ~$*.docx
+java/target/
+java/.m2/
+.idea/
+*.iml
