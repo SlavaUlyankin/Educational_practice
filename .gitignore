@@ -3,3 +3,5 @@ __pycache__/
 docs/report/rendered/
 docs/report/stage1_review.pdf
 docs/standards/diagram_check/
+docs/report/*_этап1.docx
+~$*.docx
